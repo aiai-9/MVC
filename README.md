@@ -150,8 +150,6 @@ This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for d
 Special thanks to the **State Spaces Research Group** for developing **Mamba**, and to the **StyleTTS2 team** for their insights on diffusion-based TTS.
 
 
----
-
 ### 🔹 **Key Enhancements in This README**
 - **Professional Formatting**: Includes headers, code blocks, tables, and markdown syntax for clarity.
 - **Structured Sections**:
