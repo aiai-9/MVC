@@ -148,7 +148,7 @@ This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for d
 ## 🤝 Acknowledgements
 
 Special thanks to the **State Spaces Research Group** for developing **Mamba**, and to the **StyleTTS2 team** for their insights on diffusion-based TTS.
-```
+
 
 ---
 
