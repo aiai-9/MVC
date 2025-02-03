@@ -1,8 +1,4 @@
-Here is a professional **README.md** file for your GitHub repository, including the abstract, model architecture, installation instructions, training details, and example usage.
 
----
-
-```markdown
 # MambaVoiceCloning (MVC): Scalable State-Space Modeling Meets Diffusion-Driven Style Control
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -32,7 +28,7 @@ MVC achieves **state-of-the-art performance on LJSpeech**, outperforming **Style
 - **Expressive Speech Modeling:** Fine-grained control over speaker style and prosody.
 - **State-of-the-Art Performance:** Outperforms StyleTTS2 and JETS on LJSpeech.
 
----
+
 
 ## ⚙️ Installation
 
