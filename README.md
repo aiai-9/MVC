@@ -124,7 +124,7 @@ MVC achieves **superior spectral alignment** and **harmonic preservation**, clos
 
 ---
 
-## 🔬 Research & Citations
+<!-- ## 🔬 Research & Citations
 
 If you use MVC in your research, please cite:
 
@@ -135,7 +135,7 @@ If you use MVC in your research, please cite:
   journal={ICML},
   year={2025}
 }
-```
+``` -->
 
 ---
 
