@@ -1,6 +1,3 @@
-Here is a professional **README.md** file for your GitHub repository, including the abstract, model architecture, installation instructions, training details, and example usage.
-
----
 
 ```markdown
 # MambaVoiceCloning (MVC): Scalable State-Space Modeling Meets Diffusion-Driven Style Control
@@ -168,5 +165,3 @@ Special thanks to the **State Spaces Research Group** for developing **Mamba**, 
   - 📊 **Results & Comparisons**: Features benchmark metrics, MOSID scores, and spectrogram analysis.
   - 🔬 **Citations & Research**: Provides BibTeX for academic reference.
   - 📝 **License & Acknowledgements**: Ensures proper crediting.
-
-This README enhances the professionalism and usability of your GitHub repository for **ICML 2025 submission and open-source release**. 🚀
