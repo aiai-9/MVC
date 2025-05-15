@@ -796,106 +796,76 @@ class ProsodyPredictor(nn.Module):
 
 
 
-    
-class DurationEncoder(nn.Module):
-    def __init__(self, sty_dim, d_model, nlayers, dropout=0.1):
+class ExpressiveMambaEncoder(nn.Module):
+    def __init__(self, channels, style_dim, kernel_size=3, depth=4, dropout=0.2):
         super().__init__()
-        self.mamba_blocks = nn.ModuleList()
-        
-        for i in range(nlayers):
-            # print(f"Initializing Mamba block {i+1} and AdaLayerNorm {i+1}")
-            # Replace LSTM with Mamba, initialized with the same dimensions
-            self.mamba_blocks.append(Mamba(d_model=d_model + sty_dim))
-            self.mamba_blocks.append(AdaLayerNorm(sty_dim, d_model))
+        self.channels = channels
+        self.style_dim = style_dim
 
-        self.dropout = dropout
-        self.d_model = d_model
-        self.sty_dim = sty_dim
-        # print("DurationEncoder with Mamba initialization complete.")
-        # print(f"d_model: {d_model}, sty_dim: {sty_dim}, nlayers: {nlayers}, dropout: {dropout}")
+        # Gated Spectrogram Transformation (Eq. 17)
+        self.gate_conv = nn.Sequential(
+            weight_norm(nn.Conv1d(channels, channels, kernel_size, padding=(kernel_size - 1) // 2)),
+            nn.Sigmoid()
+        )
+        self.transform_conv = nn.Sequential(
+            weight_norm(nn.Conv1d(channels, channels, kernel_size, padding=(kernel_size - 1) // 2)),
+            nn.Tanh()
+        )
 
-    def forward(self, x, style, text_lengths, m):
-        # print("Entering forward pass of Mamba-integrated DurationEncoder.")
-        # print("Initial x shape:", x.shape)
-        # print("Initial style shape:", style.shape)
+        # AdaLayerNorm for style modulation (Eq. 18)
+        self.adaln = AdaLayerNorm(style_dim, channels)
 
-        masks = m.to(text_lengths.device)
-        # print("Mask shape after transfer to device:", masks.shape)
+        # Mamba block for expressive feature extraction (Eq. 19)
+        self.mamba_blocks = nn.ModuleList([
+            nn.Sequential(
+                Mamba(d_model=channels),
+                nn.Dropout(dropout)
+            )
+            for _ in range(depth)
+        ])
 
-        # Reshape and expand style for concatenation
-        x = x.permute(2, 0, 1)  # [T, B, d_model]
-        # print("x shape after permute:", x.shape)
+        # Final projection to match channel dimensions
+        self.projection = nn.Linear(channels, channels)
 
-        s = style.expand(x.shape[0], x.shape[1], -1)  # Match temporal dimension
-        # print("Expanded style shape:", s.shape)
+    def forward(self, x, style, m):
+        # Apply gated transformation (Eq. 17)
+        gated = self.gate_conv(x) * self.transform_conv(x)
 
-        # Concatenate style to x and apply mask
-        x = torch.cat([x, s], axis=-1)  # Concatenate on feature dimension
-        # print("x shape after concatenation with style:", x.shape)
-        x.masked_fill_(masks.unsqueeze(-1).transpose(0, 1), 0.0)
-        # print("x shape after masked fill:", x.shape)
+        # Apply style modulation (Eq. 18)
+        gated = self.adaln(gated.transpose(-1, -2), style).transpose(-1, -2)
 
-        x = x.transpose(0, 1)  # [B, T, d_model + sty_dim]
-        # print("x shape after transpose for Mamba input:", x.shape)
+        # Apply Mamba blocks (Eq. 19)
+        for block in self.mamba_blocks:
+            gated = block(gated)
 
-        x = x.transpose(-1, -2)  # Prepare shape for Mamba
-        
-        # Process through each Mamba and AdaLayerNorm block
-        for i, block in enumerate(self.mamba_blocks):
-            if isinstance(block, AdaLayerNorm):
-                # print(f"Applying AdaLayerNorm {i//2 + 1}")
+        # Project back to original channel dimensions
+        gated = self.projection(gated.transpose(-1, -2)).transpose(-1, -2)
 
-                # Split x into feature and style parts
-                x_feature = x[:, :self.d_model, :]  # Get the feature part
-                x_style = x[:, self.d_model:, :]    # Get the style part
+        # Apply masking
+        gated.masked_fill_(m.unsqueeze(1), 0.0)
 
-                # Apply AdaLayerNorm to the feature part only
-                x_feature = block(x_feature.transpose(-1, -2), style).transpose(-1, -2)
-                # print(f"x_feature shape after AdaLayerNorm {i//2 + 1}:", x_feature.shape)
-
-                # Concatenate the normalized feature part with the style part
-                x = torch.cat([x_feature, x_style], axis=1)
-                # print(f"x shape after re-concatenation with style part {i//2 + 1}:", x.shape)
-
-                # Apply mask after re-concatenation
-                x.masked_fill_(masks.unsqueeze(-1).transpose(-1, -2), 0.0)
-                # print(f"x shape after masked fill in AdaLayerNorm {i//2 + 1}:", x.shape)
-            else:
-                # print(f"Applying Mamba block {i//2 + 1}")
-
-                # Pass through Mamba
-                x = block(x.transpose(-1, -2))
-                x = x.transpose(-1, -2)  # Transpose back after Mamba
-                # print(f"x shape after Mamba block {i//2 + 1}:", x.shape)
-
-                # Apply dropout
-                x = F.dropout(x, p=self.dropout, training=self.training)
-                # print(f"x shape after dropout {i//2 + 1}:", x.shape)
-
-                # Prepare padded tensor to match expected dimensions
-                x_pad = torch.zeros([x.shape[0], x.shape[1], m.shape[-1]], device=x.device)
-                x_pad[:, :, :x.shape[-1]] = x
-                x = x_pad
-                # print(f"x shape after padding {i//2 + 1}:", x.shape)
-
-
-                # print("Exiting forward pass of Mamba-integrated DurationEncoder.")
-                return x.transpose(-1, -2)  # Final transpose to match expected output shape
+        return gated
 
     def inference(self, x, style):
-        x = self.embedding(x.transpose(-1, -2)) * math.sqrt(self.d_model)
-        style = style.expand(x.shape[0], x.shape[1], -1)
-        x = torch.cat([x, style], axis=-1)
-        src = self.pos_encoder(x)
-        output = self.transformer_encoder(src).transpose(0, 1)
-        return output
-    
+        # Apply gated transformation
+        gated = self.gate_conv(x) * self.transform_conv(x)
+
+        # Style modulation
+        gated = self.adaln(gated.transpose(-1, -2), style).transpose(-1, -2)
+
+        # Mamba blocks
+        for block in self.mamba_blocks:
+            gated = block(gated)
+
+        # Final projection
+        gated = self.projection(gated.transpose(-1, -2)).transpose(-1, -2)
+
+        return gated
+
     def length_to_mask(self, lengths):
         mask = torch.arange(lengths.max()).unsqueeze(0).expand(lengths.shape[0], -1).type_as(lengths)
         mask = torch.gt(mask + 1, lengths.unsqueeze(1))
-        # print("Mask shape:", mask.shape)
         return mask
-
     
 def load_F0_models(path):
     # load F0 model
@@ -1033,4 +1003,3 @@ def load_checkpoint(model, optimizer, path, load_only_params=True, ignore_module
         iters = 0
         
     return model, optimizer, epoch, iters
-
