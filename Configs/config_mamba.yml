@@ -19,7 +19,7 @@ ASR_config: "Utils/ASR/config.yml"
 ASR_path: "Utils/ASR/epoch_00080.pth"
 PLBERT_dir: 'Utils/PLBERT/'
 
-log_dir: "Models/LJSpeech_mamba_duration_5"
+log_dir: "Models/mamba_duration"
 data_params:
   train_data: "/scratch/sahil/voice_cloning/datasets/LJSpeech/LJSpeech-1.1/train_list.txt"
   val_data: "/scratch/sahil/voice_cloning/datasets/LJSpeech/LJSpeech-1.1/val_list.txt"
