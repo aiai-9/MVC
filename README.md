@@ -142,6 +142,6 @@ We welcome contributions! Please read the CONTRIBUTING.md file for guidelines on
 
 MVC builds on prior work from the Mamba, StyleTTS2, and VITS communities. We thank the authors for their foundational contributions to the field of TTS.
 
-## 📫 Contact
+<!-- ## 📫 Contact
 
-For questions or collaboration, please reach out via GitHub issues or contact us directly at [skumar4@mail.yu.edu](mailto:skumar4@mail.yu.edu).
+For questions or collaboration, please reach out via GitHub issues or contact us directly at [skumar4@mail.yu.edu](mailto:skumar4@mail.yu.edu). -->
