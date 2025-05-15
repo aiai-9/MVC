@@ -49,11 +49,11 @@ pip install -r requirements.txt
 ### Dataset Preparation
 
 1. Download the LJSpeech dataset [here](https://keithito.com/LJ-Speech-Dataset/) or the LibriTTS dataset [here](https://www.openslr.org/60/).
-2. Preprocess the data:
+<!-- 2. Preprocess the data:
 
 ```bash
 python scripts/preprocess.py --dataset LJSpeech --output_path data/LJSpeech
-```
+``` -->
 
 ### Training
 
@@ -85,7 +85,7 @@ MVC consists of three core components:
 2. **Expressive Mamba Encoder:** Enhances prosodic variation and speaker expressiveness.
 3. **Temporal Bi-Mamba Encoder:** Models rhythmic structures and duration alignment for natural speech generation.
 
-![MVC Architecture](figures/MVC.png)
+![MVC Architecture](figures/mvc.png)
 
 ## 📊 Evaluation
 
