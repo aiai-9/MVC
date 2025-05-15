@@ -73,6 +73,16 @@ Generate high-quality speech with pre-trained models:
 python inference.py --config_path ./configs/config.yml --input_text "Hello, this is MambaVoiceCloning."
 ```
 
+## 🧠 Model Architecture
+
+MVC consists of three core components:
+
+1. **Bi-Mamba Text Encoder:** Efficiently captures phoneme-level context using bidirectional state-space models (SSMs).
+2. **Expressive Mamba Encoder:** Enhances prosodic variation and speaker expressiveness.
+3. **Temporal Bi-Mamba Encoder:** Models rhythmic structures and duration alignment for natural speech generation.
+
+![MVC Architecture](figures/mvc.png)
+
 ## 📊 Evaluation
 
 Run objective and subjective evaluations using provided scripts:
@@ -80,6 +90,35 @@ Run objective and subjective evaluations using provided scripts:
 ```bash
 python evaluate.py --config_path ./configs/config.yml
 ```
+
+## 🏆 Results
+
+### Table 1: Subjective Evaluation on LibriTTS (Zero-Shot)
+
+| Model          | MOS-N (↑)       | MOS-S (↑)       |
+| -------------- | --------------- | --------------- |
+| Ground Truth   | 4.60 ± 0.09     | 4.35 ± 0.10     |
+| VITS           | 3.69 ± 0.12     | 3.54 ± 0.13     |
+| StyleTTS2      | 4.15 ± 0.11     | 4.03 ± 0.11     |
+| **MVC (Ours)** | **4.22 ± 0.10** | **4.07 ± 0.10** |
+
+### Table 2: MOS Comparison on LJSpeech (ID vs OOD)
+
+| Model          | MOS\_ID (↑)     | MOS\_OOD (↑)    |
+| -------------- | --------------- | --------------- |
+| Ground Truth   | 3.81 ± 0.09     | 3.70 ± 0.11     |
+| StyleTTS2      | 3.83 ± 0.08     | 3.87 ± 0.08     |
+| JETS           | 3.57 ± 0.10     | 3.21 ± 0.12     |
+| VITS           | 3.44 ± 0.10     | 3.21 ± 0.11     |
+| **MVC (Ours)** | **3.87 ± 0.07** | **3.88 ± 0.09** |
+
+### Table 3: Objective Metrics on LJSpeech
+
+| Model          | F0 RMSE (↓)       | MCD (↓)         | WER (↓)   | RTF (↓)    |
+| -------------- | ----------------- | --------------- | --------- | ---------- |
+| VITS           | 0.667 ± 0.011     | 4.97 ± 0.09     | 7.23%     | 0.0211     |
+| StyleTTS2      | 0.651 ± 0.013     | **4.93 ± 0.06** | **6.50%** | 0.0185     |
+| **MVC (Ours)** | **0.653 ± 0.014** | 4.91 ± 0.07     | 6.52%     | **0.0177** |
 
 ## 🛠️ Troubleshooting
 
