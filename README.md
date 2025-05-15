@@ -85,7 +85,7 @@ MVC consists of three core components:
 2. **Expressive Mamba Encoder:** Enhances prosodic variation and speaker expressiveness.
 3. **Temporal Bi-Mamba Encoder:** Models rhythmic structures and duration alignment for natural speech generation.
 
-![MVC Architecture](figures/mvc.png)
+![MVC Architecture](figures/MVC.png)
 
 ## 📊 Evaluation
 
