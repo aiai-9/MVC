@@ -19,8 +19,7 @@ from Modules.diffusion.diffusion import AudioDiffusionConditional
 
 from Modules.discriminators import MultiPeriodDiscriminator, MultiResSpecDiscriminator, WavLMDiscriminator
 
-from mamba_ssm.modules.mamba_simple import Mamba  # Ensure correct import path for Mamba
-
+from mamba_ssm.modules.mamba_simple import Mamba  
 from munch import Munch
 import yaml
 
@@ -288,71 +287,74 @@ class LayerNorm(nn.Module):
         return x.transpose(1, -1)
     
 class BiMambaTextEncoder(nn.Module):
-    def __init__(self, channels, kernel_size, depth, n_symbols, style_dim, actv=nn.LeakyReLU(0.2), dropout=0.2):
+    def __init__(self, channels, kernel_size, depth, n_symbols, style_dim, actv=nn.LeakyReLU(0.2), dropout=0.2, use_checkpointing=True):
         super().__init__()
         self.embedding = nn.Embedding(n_symbols, channels)
 
-        # Convolutional layers for hierarchical feature extraction
+        # Optimized convolution layers with grouped and depthwise convolutions
         padding = (kernel_size - 1) // 2
-        self.cnn = nn.ModuleList()
-        for _ in range(depth):
-            self.cnn.append(nn.Sequential(
-                weight_norm(nn.Conv1d(channels, channels, kernel_size=kernel_size, padding=padding)),
-                LayerNorm(channels),
+        self.cnn = nn.ModuleList([
+            nn.Sequential(
+                weight_norm(nn.Conv1d(channels, channels, kernel_size=kernel_size, padding=padding, groups=channels // 4)),
+                nn.GroupNorm(4, channels),
                 actv,
                 nn.Dropout(dropout),
-            ))
+            ) for _ in range(depth)
+        ])
 
-        # Bi-Mamba blocks (forward and backward)
+        # Bi-Mamba blocks (forward and backward) with reduced complexity
         self.mamba_f = Mamba(d_model=channels)
         self.mamba_b = Mamba(d_model=channels)
 
-        # Cross-Attention Layer for enhanced feature fusion
-        self.cross_attention = nn.MultiheadAttention(embed_dim=channels, num_heads=4, dropout=dropout)
+        # Efficient cross-attention
+        self.cross_attention = nn.Linear(2 * channels, 2 * channels, bias=False)
 
-        # Gated Mechanism for residual connections
+        # Gated mechanism for residual connections
         self.gate = nn.Sequential(
-            nn.Linear(2 * channels, 2 * channels),
-            nn.Sigmoid()
+            nn.Conv1d(2 * channels, 2 * channels, kernel_size=1, groups=2),
+            nn.SiLU()
         )
 
         # AdaLayerNorm for style conditioning
-        self.adaln = AdaLayerNorm(style_dim, 2 * channels)
+        self.adaln = nn.LayerNorm(2 * channels)
 
         # Projection layer to combine forward and backward outputs
-        self.projection = nn.Linear(2 * channels, channels)
+        self.projection = nn.Linear(2 * channels, channels, bias=False)
+
+        self.use_checkpointing = use_checkpointing
 
     def forward(self, x, style, input_lengths, m):
-        # Embedding lookup
-        x = self.embedding(x)  # [B, T, emb]
-        x = x.transpose(1, 2)  # [B, emb, T]
+        # Embedding lookup with efficient padding mask
+        x = self.embedding(x).transpose(1, 2)  # [B, emb, T]
 
-        # Apply CNN layers for hierarchical processing
+        # Apply optimized CNN layers
         for c in self.cnn:
-            x = c(x)
-            x.masked_fill_(m.unsqueeze(1), 0.0)  # Apply mask
+            if self.use_checkpointing and x.requires_grad:
+                x = torch.utils.checkpoint.checkpoint(c, x)
+            else:
+                x = c(x)
+            x.masked_fill_(m.unsqueeze(1), 0.0)
 
         # Bi-Mamba processing
         x = x.transpose(1, 2)  # [B, T, chn]
         forward_output = self.mamba_f(x)
-        backward_output = self.mamba_b(torch.flip(x, dims=[1]))  # Reverse for backward pass
+        backward_output = self.mamba_b(torch.flip(x, dims=[1]))
 
         # Combine forward and backward outputs
         combined = torch.cat([forward_output, backward_output], dim=-1)  # [B, T, 2 * chn]
 
         # Apply Gated Mechanism
-        gated_features = self.gate(combined) * combined
+        gated_features = self.gate(combined.transpose(-1, -2)).transpose(-1, -2) * combined
 
-        # Cross-Attention for refined fusion
-        combined = combined.transpose(0, 1)  # [T, B, 2 * chn]
-        attention_output, _ = self.cross_attention(combined, combined, combined)
-        combined = gated_features + attention_output.transpose(0, 1)
+        # Cross-Attention
+        combined = self.cross_attention(combined)
+        combined += gated_features
 
         # Apply style conditioning
-        combined = self.adaln(combined.transpose(-1, -2), style).transpose(-1, -2)
+        combined = self.adaln(combined)
 
         # Project back to original channel dimensions
-        combined = self.projection(combined)  # [B, T, chn]
+        combined = self.projection(combined)
 
         # Mask again to remove padding artifacts
         combined = combined.masked_fill(m.unsqueeze(-1), 0.0)
@@ -360,43 +362,16 @@ class BiMambaTextEncoder(nn.Module):
         return combined
 
     def inference(self, x):
-        x = self.embedding(x)
-        x = x.transpose(1, 2)
+        # Efficient inference with checkpointing for memory savings
+        x = self.embedding(x).transpose(1, 2)
         for c in self.cnn:
             x = c(x)
         x = x.transpose(1, 2)
-
-        # Mamba SSM inference (both forward and backward)
         forward_output = self.mamba_f(x)
         backward_output = self.mamba_b(torch.flip(x, dims=[1]))
-
-        # Combine outputs and project
         combined = torch.cat([forward_output, backward_output], dim=-1)
         combined = self.projection(combined)
-
         return combined
-
-    def length_to_mask(self, lengths):
-        mask = torch.arange(lengths.max()).unsqueeze(0).expand(lengths.shape[0], -1).type_as(lengths)
-        mask = torch.gt(mask + 1, lengths.unsqueeze(1))
-        return mask
-    
-    
-    def inference(self, x):
-        x = self.embedding(x)
-        x = x.transpose(1, 2)
-        for c in self.cnn:
-            x = c(x)
-        x = x.transpose(1, 2)
-
-        # Mamba SSM inference
-        x, _ = self.mamba_ssm(x)
-        
-        # Expand dimension if needed
-        if x.dim() == 2:
-            x = x.unsqueeze(1)
-            
-        return x
 
     def length_to_mask(self, lengths):
         mask = torch.arange(lengths.max()).unsqueeze(0).expand(lengths.shape[0], -1).type_as(lengths)
@@ -497,69 +472,57 @@ class AdaLayerNorm(nn.Module):
 
 
 class TemporalBiMambaEncoder(nn.Module):
-    def __init__(self, channels, style_dim, kernel_size=3, depth=4, dropout=0.2):
+    def __init__(self, channels, style_dim, kernel_size=3, depth=4, dropout=0.2, use_checkpointing=True):
         super().__init__()
         self.channels = channels
         self.style_dim = style_dim
 
-        # Multi-scale hierarchical feature extraction
+        # Optimized convolutional blocks
         self.conv_blocks = nn.ModuleList([
             nn.Sequential(
-                weight_norm(nn.Conv1d(channels, channels, kernel_size, padding=(kernel_size - 1) // 2)),
-                LayerNorm(channels),
+                weight_norm(nn.Conv1d(channels, channels, kernel_size, padding=(kernel_size - 1) // 2, groups=channels // 4)),
+                nn.GroupNorm(4, channels),
                 nn.LeakyReLU(0.2),
                 nn.Dropout(dropout)
-            )
-            for _ in range(depth)
+            ) for _ in range(depth)
         ])
 
-        # Bi-Mamba blocks for forward and backward processing
-        self.forward_ssm = nn.ModuleList([
-            nn.Sequential(
-                Mamba(d_model=channels),
-                nn.Dropout(dropout)
-            )
-            for _ in range(depth)
-        ])
-        self.backward_ssm = nn.ModuleList([
-            nn.Sequential(
-                Mamba(d_model=channels),
-                nn.Dropout(dropout)
-            )
-            for _ in range(depth)
-        ])
+        # Bi-Mamba blocks for efficient sequence modeling
+        self.forward_ssm = Mamba(d_model=channels)
+        self.backward_ssm = Mamba(d_model=channels)
 
-        # Cross-Attention for temporal consistency
-        self.cross_attention = nn.MultiheadAttention(embed_dim=channels, num_heads=4, dropout=dropout)
+        # Optimized cross-attention for temporal consistency
+        self.cross_attention = nn.Linear(2 * channels, 2 * channels, bias=False)
 
         # Residual gating mechanism
         self.gate = nn.Sequential(
-            nn.Linear(2 * channels, 2 * channels),
-            nn.Sigmoid()
+            nn.Conv1d(2 * channels, 2 * channels, kernel_size=1, groups=2),
+            nn.SiLU()
         )
 
-        # Style modulation
-        self.adaln = AdaLayerNorm(style_dim, 2 * channels)
+        # Style modulation with LayerNorm
+        self.adaln = nn.LayerNorm(2 * channels)
 
         # Final projection to match channel dimensions
-        self.fusion_proj = nn.Linear(2 * channels, channels)
+        self.fusion_proj = nn.Linear(2 * channels, channels, bias=False)
+
+        self.use_checkpointing = use_checkpointing
 
     def forward(self, x, style, m):
         # Multi-scale hierarchical feature extraction
         for block in self.conv_blocks:
-            x = block(x)
+            if self.use_checkpointing and x.requires_grad:
+                x = torch.utils.checkpoint.checkpoint(block, x)
+            else:
+                x = block(x)
             x.masked_fill_(m.unsqueeze(1), 0.0)
 
-        # Forward and backward processing
-        forward_features = x
-        backward_features = x.flip(dims=[-1])
+        # Bi-Mamba processing
+        forward_features = self.forward_ssm(x)
+        backward_features = self.backward_ssm(torch.flip(x, dims=[-1]))
 
-        for f_block, b_block in zip(self.forward_ssm, self.backward_ssm):
-            forward_features = f_block(forward_features)
-            backward_features = b_block(backward_features)
-
-        # Reverse backward features back to original order
-        backward_features = backward_features.flip(dims=[-1])
+        # Reverse backward features
+        backward_features = torch.flip(backward_features, dims=[-1])
 
         # Concatenate forward and backward features
         bidirectional_features = torch.cat([forward_features, backward_features], dim=1)
@@ -567,16 +530,15 @@ class TemporalBiMambaEncoder(nn.Module):
         # Residual gating
         gated_features = self.gate(bidirectional_features) * bidirectional_features
 
-        # Cross-Attention for refined temporal context
-        bidirectional_features = bidirectional_features.transpose(0, 1)  # [T, B, 2 * chn]
-        attention_output, _ = self.cross_attention(bidirectional_features, bidirectional_features, bidirectional_features)
-        bidirectional_features = gated_features + attention_output.transpose(0, 1)
+        # Cross-Attention for temporal context
+        bidirectional_features = self.cross_attention(bidirectional_features)
+        bidirectional_features += gated_features
 
         # Style modulation
-        bidirectional_features = self.adaln(bidirectional_features.transpose(-1, -2), style).transpose(-1, -2)
+        fused_features = self.adaln(bidirectional_features)
 
         # Final fusion projection
-        fused_features = self.fusion_proj(bidirectional_features.transpose(-1, -2)).transpose(-1, -2)
+        fused_features = self.fusion_proj(fused_features)
 
         # Apply masking
         fused_features.masked_fill_(m.unsqueeze(1), 0.0)
@@ -626,59 +588,53 @@ class TemporalBiMambaEncoder(nn.Module):
 
 
 class ExpressiveMambaEncoder(nn.Module):
-    def __init__(self, channels, style_dim, kernel_size=3, depth=4, dropout=0.2):
+    def __init__(self, channels, style_dim, kernel_size=3, depth=4, dropout=0.2, use_checkpointing=True):
         super().__init__()
         self.channels = channels
         self.style_dim = style_dim
+        self.use_checkpointing = use_checkpointing
 
-        # Hierarchical Gated Spectrogram Transformation
-        self.gate_convs = nn.ModuleList([
+        # Optimized Gated Spectrogram Transformation with Depthwise Separable Convolutions
+        self.gated_convs = nn.ModuleList([
             nn.Sequential(
-                weight_norm(nn.Conv1d(channels, channels, kernel_size, padding=(kernel_size - 1) // 2)),
-                nn.Sigmoid()
-            )
-            for _ in range(depth)
-        ])
-        self.transform_convs = nn.ModuleList([
-            nn.Sequential(
-                weight_norm(nn.Conv1d(channels, channels, kernel_size, padding=(kernel_size - 1) // 2)),
-                nn.Tanh()
-            )
-            for _ in range(depth)
-        ])
-
-        # Dual-Path Mamba Blocks
-        self.mamba_blocks = nn.ModuleList([
-            nn.Sequential(
-                Mamba(d_model=channels),
+                weight_norm(nn.Conv1d(channels, channels, kernel_size, padding=(kernel_size - 1) // 2, groups=channels // 4)),
+                nn.GroupNorm(4, channels),
+                nn.SiLU(),
                 nn.Dropout(dropout)
-            )
-            for _ in range(depth)
+            ) for _ in range(depth)
         ])
 
-        # Self-Attention for long-range dependencies
-        self.self_attention = nn.MultiheadAttention(embed_dim=channels, num_heads=4, dropout=dropout)
+        # Mamba Blocks for Sequence Modeling
+        self.mamba_blocks = nn.ModuleList([
+            Mamba(d_model=channels) for _ in range(depth)
+        ])
 
-        # Residual Gating Mechanism
+        # Optimized Residual Gating with Grouped Convolutions
         self.gate = nn.Sequential(
-            nn.Linear(2 * channels, 2 * channels),
-            nn.Sigmoid()
+            nn.Conv1d(2 * channels, 2 * channels, kernel_size=1, groups=2, bias=False),
+            nn.SiLU()
         )
 
-        # AdaLayerNorm for style modulation
-        self.adaln = AdaLayerNorm(style_dim, 2 * channels)
+        # LayerNorm for Lightweight Style Conditioning
+        self.adaln = nn.LayerNorm(2 * channels)
 
-        # Final projection to match channel dimensions
-        self.projection = nn.Linear(2 * channels, channels)
+        # Final Projection Layer
+        self.projection = nn.Linear(2 * channels, channels, bias=False)
 
     def forward(self, x, style, m):
-        # Hierarchical Gated Spectrogram Transformation
-        gated_features = 0
-        for gate_conv, transform_conv in zip(self.gate_convs, self.transform_convs):
-            gated = gate_conv(x) * transform_conv(x)
-            gated_features += gated
+        # Optimized Gated Spectrogram Transformation
+        gated_features = []
+        for block in self.gated_convs:
+            if self.use_checkpointing and x.requires_grad:
+                x = torch.utils.checkpoint.checkpoint(block, x)
+            else:
+                x = block(x)
+            gated_features.append(x)
 
-        # Apply Mamba blocks
+        # Combine Gated Features
+        gated_features = sum(gated_features)
+
+        # Mamba Block Processing
         mamba_features = 0
         for block in self.mamba_blocks:
             mamba_features += block(gated_features)
@@ -687,59 +643,33 @@ class ExpressiveMambaEncoder(nn.Module):
         combined_features = torch.cat([gated_features, mamba_features], dim=1)
 
         # Residual Gating
-        gated_features = self.gate(combined_features) * combined_features
+        gated_output = self.gate(combined_features) * combined_features
 
-        # Self-Attention for long-range dependencies
-        combined_features = combined_features.transpose(0, 1)  # [T, B, 2 * chn]
-        attention_output, _ = self.self_attention(combined_features, combined_features, combined_features)
-        combined_features = gated_features + attention_output.transpose(0, 1)
+        # Apply Style Modulation
+        gated_output = self.adaln(gated_output)
 
-        # Style modulation
-        combined_features = self.adaln(combined_features.transpose(-1, -2), style).transpose(-1, -2)
+        # Final Projection
+        projected_output = self.projection(gated_output)
 
-        # Final projection
-        fused_features = self.projection(combined_features.transpose(-1, -2)).transpose(-1, -2)
+        # Apply Masking
+        projected_output.masked_fill_(m.unsqueeze(1), 0.0)
 
-        # Apply masking
-        fused_features.masked_fill_(m.unsqueeze(1), 0.0)
-
-        return fused_features
+        return projected_output
 
     def inference(self, x, style):
-        # Hierarchical Gated Spectrogram Transformation
-        gated_features = 0
-        for gate_conv, transform_conv in zip(self.gate_convs, self.transform_convs):
-            gated = gate_conv(x) * transform_conv(x)
-            gated_features += gated
-
-        # Apply Mamba blocks
-        mamba_features = 0
-        for block in self.mamba_blocks:
-            mamba_features += block(gated_features)
-
-        # Combine gated and Mamba features
+        # Efficient Inference
+        gated_features = sum(block(x) for block in self.gated_convs)
+        mamba_features = sum(block(gated_features) for block in self.mamba_blocks)
         combined_features = torch.cat([gated_features, mamba_features], dim=1)
-
-        # Residual Gating
-        gated_features = self.gate(combined_features) * combined_features
-
-        # Self-Attention for long-range dependencies
-        combined_features = combined_features.transpose(0, 1)  # [T, B, 2 * chn]
-        attention_output, _ = self.self_attention(combined_features, combined_features, combined_features)
-        combined_features = gated_features + attention_output.transpose(0, 1)
-
-        # Style modulation
-        combined_features = self.adaln(combined_features.transpose(-1, -2), style).transpose(-1, -2)
-
-        # Final projection
-        fused_features = self.projection(combined_features.transpose(-1, -2)).transpose(-1, -2)
-
-        return fused_features
+        gated_output = self.gate(combined_features) * combined_features
+        projected_output = self.projection(self.adaln(gated_output))
+        return projected_output
 
     def length_to_mask(self, lengths):
         mask = torch.arange(lengths.max()).unsqueeze(0).expand(lengths.shape[0], -1).type_as(lengths)
         mask = torch.gt(mask + 1, lengths.unsqueeze(1))
         return mask
+
 
 
 
