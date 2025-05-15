@@ -2,6 +2,10 @@
 
 This paper presents **MambaVoiceCloning (MVC)**, a scalable and expressive text-to-speech (TTS) framework that unifies *state-space sequence modeling* with *diffusion-driven style control*. Distinct from prior diffusion-based models, MVC replaces all self-attention and recurrent components in the TTS pipeline with novel Mamba-based modules: a Bi-Mamba Text Encoder, Temporal Bi-Mamba Encoder, and Expressive Mamba Predictor. These modules enable linear-time modeling of long-range phonetic and prosodic dependencies, improving efficiency and expressiveness without relying on external reference encoders. While MVC uses a diffusion-based decoder for waveform generation, our contribution is architectural—introducing the first end-to-end Mamba-integrated TTS backbone. Extensive experiments on LJSpeech and LibriTTS demonstrate that MVC significantly improves naturalness, prosody, intelligibility, and latency over state-of-the-art methods. MVC maintains a lightweight footprint of 21M parameters and achieves 1.6× faster training than comparable Transformer-based baselines.
 
+### 🎧 Audio Demos
+Explore MVC's expressive and high-quality speech synthesis through our audio samples: [MVC Audio Demos](https://aiai-9.github.io/mvc1.github.io/)
+
+
 ## 🚀 Key Features
 
 * **Attention-Free Architecture:** Fully eliminates attention and recurrence for linear-time efficiency.
