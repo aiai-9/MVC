@@ -8,25 +8,22 @@ Explore MVC's expressive and high-quality speech synthesis through our audio sam
 
 ## 🚀 Key Features
 
-* **Attention-Free Architecture:** Fully eliminates attention and recurrence for linear-time efficiency.
-* **State-Space Modeling:** Leverages Mamba-based SSMs for efficient long-range sequence modeling.
-* **Expressive Speech Generation:** Captures fine-grained prosodic and speaker variations without external reference encoders.
-* **Real-Time Inference:** Achieves sub-20ms latency for scalable, real-time TTS applications.
-* **Multilingual and Multispeaker Support:** Designed to extend to multilingual and cross-lingual TTS with flexible style control.
-* **Open Source and Reproducible:** Full code, pretrained models, and training scripts provided for transparency and ease of use.
+* **Efficient State-Space Modeling**: Utilizes Mamba blocks for linear time sequence modeling, significantly reducing computation time and memory overhead compared to traditional self-attention mechanisms.
 
-## 📂 Repository Structure
+* **Lightweight Temporal and Spectrogram Encoders**: Includes optimized **BiMambaTextEncoder**, **TemporalBiMambaEncoder**, and **ExpressiveMambaEncoder** with depthwise separable convolutions for reduced parameter count.
 
-```
-MVC/
-├── configs/                # Configuration files for training and evaluation
-├── models/                 # Core model architectures (Bi-Mamba, Expressive Encoder)
-├── data/                   # Dataset preparation and processing scripts
-├── utils/                  # Utility functions for data loading, augmentation, and logging
-├── experiments/            # Training scripts and experimental setups
-├── results/                # Generated speech samples and evaluation logs
-└── README.md               # Project overview and setup instructions
-```
+* **Dynamic Style Conditioning**: Integrates **AdaLayerNorm** for style modulation, enabling flexible control over prosody and speaker style during synthesis.
+
+* **Advanced Gating Mechanisms**: Employs grouped convolutional gating for efficient residual connections, minimizing parameter overhead while maintaining expressiveness.
+
+* **Optimized Inference Path**: Supports gradient checkpointing and efficient feature aggregation, reducing memory usage during both training and inference.
+
+
+
+
+Here is the complete installation section, including Mamba:
+
+---
 
 ## 📦 Installation
 
@@ -35,6 +32,7 @@ MVC/
 * Python >= 3.8
 * PyTorch >= 1.12.0
 * CUDA-enabled GPU (recommended for training)
+* **Mamba SSM** (Required for Mamba-based encoders)
 
 ### Setup
 
@@ -46,14 +44,16 @@ cd MVC
 pip install -r requirements.txt
 ```
 
-### Dataset Preparation
+### Install Mamba SSM
 
-1. Download the LJSpeech dataset [here](https://keithito.com/LJ-Speech-Dataset/) or the LibriTTS dataset [here](https://www.openslr.org/60/).
-<!-- 2. Preprocess the data:
+To install the Mamba SSM module, use the following command:
 
 ```bash
-python scripts/preprocess.py --dataset LJSpeech --output_path data/LJSpeech
-``` -->
+pip install git+https://github.com/state-spaces/mamba.git
+```
+
+---
+
 
 ### Training
 
