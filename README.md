@@ -19,12 +19,6 @@ Explore MVC's expressive and high-quality speech synthesis through our audio sam
 * **Optimized Inference Path**: Supports gradient checkpointing and efficient feature aggregation, reducing memory usage during both training and inference.
 
 
-
-
-Here is the complete installation section, including Mamba:
-
----
-
 ## 📦 Installation
 
 ### Prerequisites
