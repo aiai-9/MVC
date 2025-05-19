@@ -587,9 +587,7 @@ def main(config_path):
                     if p.grad is not None:
                         p.grad *= slmadv_params.scale
 
-                # for p in model.predictor.lstm.parameters():
-                #     if p.grad is not None:
-                #         p.grad *= slmadv_params.scale
+                
 
                 for p in model.diffusion.parameters():
                     if p.grad is not None:
@@ -877,8 +875,8 @@ def main(config_path):
                     d = model.predictor.text_encoder(d_en[bib, :, :input_lengths[bib]].unsqueeze(0), 
                                                      s, input_lengths[bib, ...].unsqueeze(0), text_mask[bib, :input_lengths[bib]].unsqueeze(0))
 
-                    # x, _ = model.predictor.lstm(d)
-                    x = model.predictor.mamba_ssm(d)  # Apply Mamba instead of LSTM
+                    
+                    x = model.predictor.mamba_ssm(d)  # Apply Mamba 
                     x = model.predictor.projection(x)  # Project to 512 dimensions
                     # print(f"Shape of x after Mamba in training: {x.shape}")  # Verify x's shape
 
